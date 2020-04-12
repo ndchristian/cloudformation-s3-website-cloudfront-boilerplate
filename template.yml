@@ -102,6 +102,9 @@ Resources:
             Cookies:
               Forward: none
           ViewerProtocolPolicy: redirect-to-https
+          LambdaFunctionAssociations:
+            - EventType: origin-response
+              LambdaFunctionARN: !Ref 'SecurityHeadersFunctionVersion'
         PriceClass: PriceClass_100
         ViewerCertificate:
           AcmCertificateArn: !Ref 'AcmCertificateArn'
@@ -119,6 +122,54 @@ Resources:
       HostedZoneId: !Ref 'HostedZoneId'
       Name: !Ref 'DomainName'
       Type: A
+  SecurityHeadersFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt 'SecurityHeadersFunctionRole.Arn'
+      Code:
+        ZipFile: |
+              'use strict';
+              exports.handler = (event, context, callback) => {
+
+                  //Get contents of response
+                  const response = event.Records[0].cf.response;
+                  const headers = response.headers;
+              //Set new headers
+               headers['strict-transport-security'] = [{key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubdomains; preload'}];
+               headers['content-security-policy'] = [{key: 'Content-Security-Policy', value: "default-src 'none'; img-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'"}];
+               headers['x-content-type-options'] = [{key: 'X-Content-Type-Options', value: 'nosniff'}];
+               headers['x-frame-options'] = [{key: 'X-Frame-Options', value: 'DENY'}];
+               headers['x-xss-protection'] = [{key: 'X-XSS-Protection', value: '1; mode=block'}];
+               headers['referrer-policy'] = [{key: 'Referrer-Policy', value: 'same-origin'}];
+               headers['feature-policy'] = [{key: 'Feature-Policy', value: 'geolocation none; midi none; notifications none; push none; sync-xhr none; microphone none; camera none; magnetometer none; gyroscope none; speaker self; vibrate none; fullscreen self; payment none;',}];
+
+                  //Return modified response
+                  callback(null, response);
+              };
+      Runtime: nodejs10.x
+      Timeout: 5
+      Tags:
+        - Key: Confidentiality
+          Value: Public
+  SecurityHeadersFunctionVersion:
+    Type: AWS::Lambda::Version
+    Properties:
+      FunctionName: !GetAtt 'SecurityHeadersFunction.Arn'
+  SecurityHeadersFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2008-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+                - edgelambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
 Outputs:
   S3WebsiteUrl:
     Value: !GetAtt 'WebsiteBucket.WebsiteURL'
@@ -132,3 +183,6 @@ Outputs:
   SecureDomainWebsiteUrl:
     Value: !Sub 'https://${DomainName}'
     Description: HTTPS URL For the website through the provided domain name
+  SecurityHeadersFunctionArn:
+    Value: !GetAtt 'SecurityHeadersFunction.Arn'
+    Description: Lambda ARN for the security headers function
