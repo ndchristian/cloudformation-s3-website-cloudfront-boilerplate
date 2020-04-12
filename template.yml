@@ -1,5 +1,16 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Boilerplate for a static S3 website with CloudFront and Lambda Edge.
+Parameters:
+  DomainName:
+    Type: String
+    Description: The DNS name of the website, such as example.com
+  HostedZoneId:
+    Type: String
+    Description: The ID of the Hosted Zone of the domain name
+  AcmCertificateArn:
+    Type: String
+    Description: The Amazon Resource Name (ARN) of an AWS Certificate Manager (ACM)
+      for your domain name certificate
 Resources:
   WebsiteBucket:
     Type: AWS::S3::Bucket
@@ -20,6 +31,94 @@ Resources:
       Tags:
         - Key: Confidentiality
           Value: Public
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref 'WebsiteBucket'
+      PolicyDocument:
+        Statement:
+          - Principal:
+              CanonicalUser: !GetAtt 'CloudFrontOriginAccessIdentity.S3CanonicalUserId'
+            Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub '${WebsiteBucket.Arn}/*'
+            Sid: 0
+          - Principal:
+              CanonicalUser: !GetAtt 'CloudFrontOriginAccessIdentity.S3CanonicalUserId'
+            Action: s3:ListBucket
+            Effect: Allow
+            Resource: !GetAtt 'WebsiteBucket.Arn'
+            Sid: 1
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub 'Access identity for ${WebsiteBucket}'
+  WebsiteCloudfront:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: Cloudfront Distribution pointing to S3 bucket
+        Origins:
+          - DomainName: !GetAtt 'WebsiteBucket.DomainName'
+            Id: S3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        Enabled: true
+        HttpVersion: http2
+        DefaultRootObject: index.html
+        CacheBehaviors:
+          - AllowedMethods:
+              - HEAD
+              - GET
+            CachedMethods:
+              - HEAD
+              - GET
+            TargetOriginId: S3Origin
+            Compress: true
+            DefaultTTL: 480
+            ForwardedValues:
+              QueryString: true
+              Cookies:
+                Forward: none
+            MaxTTL: 600
+            MinTTL: 420
+            PathPattern: /
+            ViewerProtocolPolicy: redirect-to-https
+        CustomErrorResponses:
+          - ErrorCachingMinTTL: 300
+            ErrorCode: 503
+        Aliases:
+          - !Ref 'DomainName'
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: true
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: !Ref 'AcmCertificateArn'
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.1_2016
+      Tags:
+        - Key: Confidentiality
+          Value: Public
+  Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      AliasTarget:
+        DNSName: !GetAtt 'WebsiteCloudfront.DomainName'
+        HostedZoneId: Z2FDTNDATAQYW2
+      HostedZoneId: !Ref 'HostedZoneId'
+      Name: !Ref 'DomainName'
+      Type: A
 Outputs:
   S3WebsiteUrl:
     Value: !GetAtt 'WebsiteBucket.WebsiteURL'
@@ -27,3 +126,9 @@ Outputs:
   SecureS3WebsiteUrl:
     Value: !Sub 'https://${WebsiteBucket.DomainName}'
     Description: HTTPS URL for website hosted on S3
+  SecureCloudFrontWebsiteUrl:
+    Value: !Sub 'https://${WebsiteCloudfront.DomainName}'
+    Description: HTTPS URL for the website through CloudFront
+  SecureDomainWebsiteUrl:
+    Value: !Sub 'https://${DomainName}'
+    Description: HTTPS URL For the website through the provided domain name
