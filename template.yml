@@ -1,0 +1,29 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Boilerplate for a static S3 website with CloudFront and Lambda Edge.
+Resources:
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      AccessControl: Private
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Confidentiality
+          Value: Public
+Outputs:
+  S3WebsiteUrl:
+    Value: !GetAtt 'WebsiteBucket.WebsiteURL'
+    Description: HTTP URL for website hosted on S3
+  SecureS3WebsiteUrl:
+    Value: !Sub 'https://${WebsiteBucket.DomainName}'
+    Description: HTTPS URL for website hosted on S3
